@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#0b1220">
+  <title>Leitor de check-in</title>
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+  <style>
+    :root{color-scheme:dark;font-family:Arial,sans-serif}*{box-sizing:border-box}body{margin:0;min-height:100vh;background:#0b1220;color:#f8fafc}main{width:min(100%,560px);margin:auto;padding:20px 16px 36px}h1{margin:4px 0 6px;font-size:26px}.sub{margin:0 0 18px;color:#94a3b8}.resumo{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px}.kpi{background:#162033;border:1px solid #26334a;border-radius:12px;padding:10px;text-align:center}.kpi strong{display:block;font-size:20px}.kpi span{color:#aebbd0;font-size:12px}#reader{overflow:hidden;min-height:260px;background:#050914;border:2px solid #334155;border-radius:16px}#reader video{object-fit:cover}button{width:100%;border:0;border-radius:12px;padding:15px;font-weight:700;font-size:16px;cursor:pointer}#iniciar{margin-top:12px;background:#2563eb;color:#fff}button:disabled{opacity:.55;cursor:wait}#resultado{display:none;margin-top:14px;border-radius:16px;padding:22px 16px;text-align:center;border:2px solid transparent}#resultado h2{margin:0 0 8px;font-size:26px}#resultado p{margin:0;line-height:1.45}#resultado.LIBERADO{display:block;background:#073b2a;border-color:#22c55e}#resultado.DUPLICADO{display:block;background:#49320b;border-color:#f59e0b}#resultado.INVALIDO,#resultado.ERRO{display:block;background:#4a1518;border-color:#ef4444}#novo{display:none;margin-top:12px;background:#e2e8f0;color:#111827}.manual{margin-top:18px;border-top:1px solid #26334a;padding-top:16px}.manual summary{color:#cbd5e1;cursor:pointer}.linha{display:flex;gap:8px;margin-top:12px}input{min-width:0;flex:1;padding:13px;border-radius:10px;border:1px solid #475569;background:#111827;color:#fff;text-transform:uppercase}.linha button{width:auto;padding-inline:18px;background:#475569;color:#fff}.aviso{display:none;padding:14px;border:1px solid #ef4444;background:#4a1518;border-radius:12px;margin-bottom:14px}
+  </style>
+</head>
+<body><main>
+  <h1>Leitor de check-in</h1><p class="sub">Aponte a câmera para o QR Code do colaborador.</p>
+  <div id="aviso" class="aviso"></div>
+  <section class="resumo"><div class="kpi"><strong id="total">–</strong><span>Total</span></div><div class="kpi"><strong id="utilizados">–</strong><span>Entradas</span></div><div class="kpi"><strong id="pendentes">–</strong><span>Pendentes</span></div></section>
+  <div id="reader"></div><button id="iniciar" type="button">Iniciar câmera</button>
+  <section id="resultado" role="status" aria-live="assertive"><h2 id="titulo"></h2><p id="mensagem"></p></section>
+  <button id="novo" type="button">Ler próximo QR Code</button>
+  <details class="manual"><summary>Digitar código manualmente</summary><div class="linha"><input id="token" placeholder="EV26-..." autocomplete="off"><button id="validar" type="button">Validar</button></div></details>
+</main><script>
+  const API_URL = 'https://script.google.com/macros/s/AKfycbyFyhDPuw53IATHLiYZWWPxPVaWXfja7O5vOC19ebK6uk1m6uIJ9oWjp3YGXKHdUR0khw/exec';
+  const scanner = new Html5Qrcode('reader');
+  const iniciar = document.getElementById('iniciar'), novo = document.getElementById('novo'), resultado = document.getElementById('resultado');
+  let ativo=false, processando=false;
+
+  function api(parametros){return new Promise((resolve,reject)=>{const nome='jsonp_'+Date.now()+'_'+Math.random().toString(36).slice(2);const script=document.createElement('script');const timer=setTimeout(()=>finalizar(new Error('Tempo esgotado')),15000);function finalizar(erro,dados){clearTimeout(timer);delete window[nome];script.remove();erro?reject(erro):resolve(dados)}window[nome]=dados=>finalizar(null,dados);const url=new URL(API_URL);Object.entries({...parametros,callback:nome,_:Date.now()}).forEach(([k,v])=>url.searchParams.set(k,v));script.src=url.toString();script.onerror=()=>finalizar(new Error('Falha de conexão'));document.body.appendChild(script)})}
+  function configurado(){return API_URL.startsWith('https://script.google.com/macros/s/')&&API_URL.endsWith('/exec')}
+  function atualizarResumo(){if(!configurado())return;api({action:'resumo'}).then(r=>['total','utilizados','pendentes'].forEach(id=>document.getElementById(id).textContent=r[id])).catch(()=>{})}
+  async function iniciarCamera(){resultado.className='';resultado.style.display='none';novo.style.display='none';iniciar.disabled=true;try{await scanner.start({facingMode:'environment'},{fps:10,qrbox:(w,h)=>({width:Math.min(w,h)*.72,height:Math.min(w,h)*.72})},codigo=>validar(codigo),()=>{});ativo=true;iniciar.style.display='none'}catch(e){exibir({tipo:'ERRO',titulo:'CÂMERA INDISPONÍVEL',mensagem:'Autorize a câmera nas configurações do navegador e tente novamente.'});iniciar.disabled=false}}
+  async function pararCamera(){if(!ativo)return;try{await scanner.stop()}catch(e){}ativo=false}
+  async function validar(codigo){if(processando)return;if(!configurado()){exibir({tipo:'ERRO',titulo:'CONFIGURAÇÃO PENDENTE',mensagem:'A URL do Apps Script ainda não foi inserida no arquivo index.html.'});return}processando=true;await pararCamera();resultado.className='';resultado.style.display='block';document.getElementById('titulo').textContent='VALIDANDO';document.getElementById('mensagem').textContent='Aguarde um instante…';try{const r=await api({action:'checkin',token:codigo});processando=false;exibir(r);atualizarResumo()}catch(e){processando=false;exibir({tipo:'ERRO',titulo:'SEM RESPOSTA',mensagem:'Verifique a internet e tente novamente.'})}}
+  function exibir(r){resultado.className=r.tipo;resultado.style.display='block';document.getElementById('titulo').textContent=r.titulo||'AVISO';document.getElementById('mensagem').textContent=r.mensagem||'';novo.style.display='block';sinal(r.tipo==='LIBERADO'?880:220);if(navigator.vibrate)navigator.vibrate(r.tipo==='LIBERADO'?120:[180,80,180])}
+  function sinal(freq){try{const c=new AudioContext(),o=c.createOscillator(),g=c.createGain();o.frequency.value=freq;o.connect(g);g.connect(c.destination);g.gain.value=.12;o.start();o.stop(c.currentTime+.14)}catch(e){}}
+  iniciar.addEventListener('click',iniciarCamera);novo.addEventListener('click',iniciarCamera);document.getElementById('validar').addEventListener('click',()=>validar(document.getElementById('token').value));document.getElementById('token').addEventListener('keydown',e=>{if(e.key==='Enter')validar(e.target.value)});
+  if(!configurado()){const a=document.getElementById('aviso');a.style.display='block';a.textContent='Configuração pendente: insira a URL /exec do Apps Script no arquivo index.html.'}else{atualizarResumo()}
+</script></body></html>
